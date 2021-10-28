@@ -15,14 +15,14 @@
 // Firmware Version :             v1.1
 //
 // Written by Yihang edited by Titus 
-// Change log v1.1:
-// Add dp for pressure + fix dp artifact
+// Change log v1.3
+// Change LCD driver library to fix decimal display bug when decimal has 0 padding
 //
 //###################################################
 //###################################################
 
 // FOR DEBUG
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 int timeout_count = 0;
 #endif
@@ -137,14 +137,6 @@ void loop()
 
   publishCAN();
 
-  // check i2c timeout 
-  #ifdef DEBUG
-  if (Wire.getWireTimeoutFlag()) {
-    timeout_count++;
-    Serial.println(timeout_count);
-    Wire.clearWireTimeoutFlag();
-  }
-  #endif
 }
 
 //===========================================
@@ -230,6 +222,9 @@ void checkCANmsg() {
     case CAN_BATT2_STAT:
       powerStats[BATT2_CURRENT] = CAN.parseCANFrame(buf, 0, 2);
       powerStats[BATT2_VOLTAGE] = CAN.parseCANFrame(buf, 2, 2);
+      #ifdef DEBUG 
+        Serial.println(powerStats[BATT2_VOLTAGE]);
+      #endif
       powerStats[BATT2_CAPACITY] = CAN.parseCANFrame(buf, 6, 2);
       pmb2_timeout = millis();
       break;
