@@ -11,21 +11,15 @@
 // # ####   # ####   #######  #######   ####
 //
 //
-// Sensor and Telemetry for BBAUV 4.0
-// Firmware Version :             v1.1
-//
+//Sensor and Telemetry for BBAUV 4.0
+//Firmware Version :             v1.0
+////
 // Written by Yihang edited by Titus 
 // Change log v1.1:
 // Add dp for pressure + fix dp artifact
 //
 //###################################################
 //###################################################
-
-// FOR DEBUG
-//#define DEBUG
-#ifdef DEBUG
-int timeout_count = 0;
-#endif
 
 #include <Wire.h>
 #include <Adafruit_RA8875.h>
@@ -38,8 +32,62 @@ int timeout_count = 0;
 #include <Arduino.h>
 #include <SPI.h> //for CAN controller
 #include <can.h>
+//#include "can_auv_define.h"
 #include "auv_4.0_can_def.h"
 #include "MS5837.h"
+
+//I2C
+#define ADS_ADDR 0X48
+#define HUMIDITY_ADDR 0X27
+
+//CAN
+#define CAN_Chip_Select 8
+#define CAN_INT 2
+
+//SCREEN
+#define SCREEN_INT 3
+#define SCREEN_CS 57
+#define SCREEN_RESET 66
+#define OFFSET 0 // 40 for ASV2.0 screen
+
+//Sensor
+#define Vref 5    //MPXH Vdd is the Vref
+#define LPF_CONSTANT 0.7
+#define ADS_DELAY 5
+#define LPF_LOOP 25
+
+//Internal stats
+#define INT_STAT_COUNT 9
+
+#define EXT_PRESS 0
+#define INT_PRESS 1
+#define PMB1_PRESS 2
+#define PMB2_PRESS 3 
+#define PMB1_TEMP 4
+#define PMB2_TEMP 5
+#define CPU_TEMP 6
+#define HUMIDITY 7
+#define ST_TEMP 8
+
+//Power stats
+#define POWER_STAT_COUNT 6
+
+#define BATT1_CAPACITY 0
+#define BATT2_CAPACITY 1
+#define BATT1_CURRENT 2
+#define BATT2_CURRENT 3
+#define BATT1_VOLTAGE 4
+#define BATT2_VOLTAGE 5
+
+//Heartbeat
+#define HB_COUNT 9
+
+//TIMEOUTS
+#define SCREEN_LOOP 1000
+#define HB_TIMEOUT 3000
+#define HEARTBEAT_LOOP 500
+#define STAT_TIMEOUT 2000 // changed from 2000
+
 
 // CAN variable
 MCP_CAN CAN(CAN_Chip_Select);
@@ -85,9 +133,9 @@ static uint32_t testing_time = 0;
 
 void setup()
 {
-  pinMode(SCREEN_CS, OUTPUT);           //CS screen
+  pinMode(SCREEN_CS, OUTPUT);       //CS screen
   digitalWrite(SCREEN_CS, HIGH);
-  pinMode(CAN_Chip_Select, OUTPUT);     //CS CAN
+  pinMode(CAN_Chip_Select, OUTPUT);   //CS CAN
   digitalWrite(CAN_Chip_Select, HIGH);
 
   Serial.begin(115200);
@@ -105,7 +153,6 @@ void setup()
 
   //Sensor init
   Wire.begin();
-  Wire.setWireTimeout(500, true);          // Set i2c timeout for 500ms 
   InitialP = readInternalPressure();
   Serial.println("int Sensors OK");
   if(!sensor.init()){
@@ -116,7 +163,7 @@ void setup()
   sensor.setFluidDensity(997);
   Serial.println("depth OK");
   
-  // setup initial heartbeat timeout
+
   for (int i = 0; i < HB_COUNT; i++) {
     heartbeat_timeout[i] = millis();
   }
@@ -127,24 +174,16 @@ void loop()
   reset_stats();
   update_ST_stats();
 
-  if ((millis() - loopTime) > SCREEN_LOOP) { 
+  if ((millis() - loopTime) > SCREEN_LOOP) {  //  1000ms
     screen_update();
     update_heartbeat();
     loopTime = millis();
   }
 
+
   checkCANmsg();
 
   publishCAN();
-
-  // check i2c timeout 
-  #ifdef DEBUG
-  if (Wire.getWireTimeoutFlag()) {
-    timeout_count++;
-    Serial.println(timeout_count);
-    Wire.clearWireTimeoutFlag();
-  }
-  #endif
 }
 
 //===========================================
@@ -209,12 +248,16 @@ void CANSetMask() {
 void checkCANmsg() {
   if (CAN_MSGAVAIL == CAN.checkReceive()) {
     CAN.readMsgBufID(&id, &len, buf);    // read data,  len: data length, buf: data buf
+     Serial.println(CAN.getCanId());
+
     switch (CAN.getCanId()) {
     case CAN_HEARTBEAT:
     {
       uint32_t device = CAN.parseCANFrame(buf, 0, 1);
       heartbeat_timeout[device] = millis();
-      break;   
+      Serial.print("device: ");
+      Serial.println(device);
+      break;  
     }
     case CAN_BATT1_STAT:
       powerStats[BATT1_CURRENT] = CAN.parseCANFrame(buf, 0, 2);
@@ -261,7 +304,7 @@ void checkCANmsg() {
   }
 }
 
-// publish raw pressure, heartbeat and stats to CAN bus
+//publish raw pressure, heartbeat and stats to CAN bus
 void publishCAN()
 {
   //publish heartbeat every 500ms
@@ -277,7 +320,6 @@ void publishCAN()
   }
 }
 
-// publish own heartbeat
 void publishCAN_heartbeat(int device_id)
 {
   id = CAN_HEARTBEAT;
@@ -285,6 +327,11 @@ void publishCAN_heartbeat(int device_id)
   buf[0] = device_id;
   CAN.sendMsgBuf(CAN_HEARTBEAT, 0, 1, buf);
 }
+
+//void publishCAN_pressure() {
+//  CAN.setupCANFrame(buf, 0, 2, rawExtPressure);
+//  CAN.sendMsgBuf(CAN_pressure, 0, 2, buf);
+//}
 
 void publishST_stats() {
   id = CAN_STB_SENS;
@@ -336,23 +383,22 @@ void screen_prepare() {
 
 void screen_update() {
   // row height 35,     increment_row()
-  // display from Ext press to ST temp
   screen.set_cursor(200 + OFFSET, 0);
   for (int i = 0; i < INT_STAT_COUNT; i++)
   {
-    // Display internal pressure as kpa with 1 dp
+    // Display internal pressure as kpa
     if (i == 0) {
       screen.write_value_with_dp(internalStats[i], 1);
     } else if (i == 1) {
-      // Display internal pressure in kpa with 2 dp
+      // Display internal pressure in kpa as given 
+      // show 2 dp
       float intP = readInternalPressure() * 100;
-      screen.write_value_with_dp(intP, 2);
+      screen.write_value_with_dp(intP,2);
     } else {
-      screen.write_value_int(internalStats[i]);
+    screen.write_value_int(internalStats[i]);
     }
   }
 
-  // display from Batt 1 capacity to Batt 2 voltage
   screen.set_cursor(645 + OFFSET, 0);
   for (int i = 0; i < POWER_STAT_COUNT; i++)
   {
@@ -365,12 +411,11 @@ void screen_update() {
   }
 }
 
-// display heartbeat status
 void update_heartbeat()
 {
+  // row height 35,     increment_row()
   int i;
   screen.set_cursor(200 + OFFSET, 315);
-  // display SBC & SBC-CAN
   for (i = 1; i < 3; i++) {
     if ((millis() - heartbeat_timeout[i]) > HB_TIMEOUT) {
       screen.write_value_string("NO");
@@ -379,7 +424,7 @@ void update_heartbeat()
       screen.write_value_string("YES");
     }        
   }
-  // display THRUSTER to PMB2
+
   screen.set_cursor(645 + OFFSET, 210);
   for (i = 4; i < 9; i++) {
     if (i != 5) { // Skip ST HB
@@ -457,14 +502,14 @@ double readInternalPressure() {
   ads.set_continuous_conv(1);
   delay(ADS_DELAY);
   uint16_t adc1 = ads.readADC_Continuous();
-  return (((double)adc1*0.0001875) / (Vref*0.0040) + 10); 
+  return (((double)adc1*0.0001875) / (Vref*0.0040) + 10);
 }
 
-// Return External Pressure in mbar
 uint16_t readExternalPressure(){
   sensor.read();
+  // returns in mbar according to library
   ExtPressure = sensor.pressure();
-  return ExtPressure; 
+  return ExtPressure; // in mbar
 }
 
 //Updates Temperature and Humidity
@@ -484,7 +529,7 @@ void readTempHumididty() {
     humidloop = millis();
   }
 }
-/*
+
 //Return bool to indicate whether is it leaking
 //Blinks led if it is leaking
 bool leak() {
@@ -494,4 +539,3 @@ bool leak() {
   }
   return leaking;
 }
-*/
