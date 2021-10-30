@@ -1,4 +1,4 @@
-  //###################################################
+    //###################################################
 //###################################################
 //
 //####     ####
@@ -15,14 +15,14 @@
 // Firmware Version :             v1.1
 //
 // Written by Yihang edited by Titus 
-// Change log v1.1:
-// Add dp for pressure + fix dp artifact
+// Change log v1.2:
+// Add i2c timeout for 500ms
 //
 //###################################################
 //###################################################
 
 // FOR DEBUG
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 int timeout_count = 0;
 #endif
@@ -139,11 +139,11 @@ void loop()
 
   // check i2c timeout 
   #ifdef DEBUG
-  if (Wire.getWireTimeoutFlag()) {
-    timeout_count++;
-    Serial.println(timeout_count);
-    Wire.clearWireTimeoutFlag();
-  }
+//  if (Wire.getWireTimeoutFlag()) {
+//    timeout_count++;
+//    Serial.println(timeout_count);
+//    Wire.clearWireTimeoutFlag();
+//  }
   #endif
 }
 
@@ -209,6 +209,9 @@ void CANSetMask() {
 void checkCANmsg() {
   if (CAN_MSGAVAIL == CAN.checkReceive()) {
     CAN.readMsgBufID(&id, &len, buf);    // read data,  len: data length, buf: data buf
+    #ifdef DEBUG 
+      Serial.println(CAN.getCanId());
+    #endif 
     switch (CAN.getCanId()) {
     case CAN_HEARTBEAT:
     {
