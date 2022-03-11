@@ -12,17 +12,18 @@
 //
 //
 // Sensor and Telemetry for BBAUV 4.0
-// Firmware Version :             v1.1
+// Firmware Version :             v1.4
 //
-// Written by Yihang edited by Titus 
-// Change log v1.2:
-// Add i2c timeout for 500ms
+// Written by Titus
+// Change log v1.4:
+// Change STATS_LOOP to be 0ms - Publish stats ASAP
+// Approx 20Hz
 //
 //###################################################
 //###################################################
 
 // FOR DEBUG
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 int timeout_count = 0;
 #endif
@@ -132,19 +133,9 @@ void loop()
     update_heartbeat();
     loopTime = millis();
   }
-
-  checkCANmsg();
-
   publishCAN();
 
-  // check i2c timeout 
-  #ifdef DEBUG
-//  if (Wire.getWireTimeoutFlag()) {
-//    timeout_count++;
-//    Serial.println(timeout_count);
-//    Wire.clearWireTimeoutFlag();
-//  }
-  #endif
+  checkCANmsg();
 }
 
 //===========================================
@@ -209,9 +200,9 @@ void CANSetMask() {
 void checkCANmsg() {
   if (CAN_MSGAVAIL == CAN.checkReceive()) {
     CAN.readMsgBufID(&id, &len, buf);    // read data,  len: data length, buf: data buf
-    #ifdef DEBUG 
-      Serial.println(CAN.getCanId());
-    #endif 
+//    #ifdef DEBUG 
+//      Serial.println(CAN.getCanId());
+//    #endif 
     switch (CAN.getCanId()) {
     case CAN_HEARTBEAT:
     {
@@ -257,7 +248,9 @@ void checkCANmsg() {
       sbc_timeout = millis();
       break;
     default:
-      Serial.println(CAN.getCanId());
+//      #ifdef DEBUG
+//      Serial.println(CAN.getCanId());
+//      #endif
       break;
     }
     CAN.clearMsg();
@@ -267,14 +260,12 @@ void checkCANmsg() {
 // publish raw pressure, heartbeat and stats to CAN bus
 void publishCAN()
 {
-  //publish heartbeat every 500ms
-  if (millis() - heartbeat_loop > 500) {
+  if (millis() - heartbeat_loop > HEARTBEAT_LOOP) {
     publishCAN_heartbeat(5);
     heartbeat_loop = millis();
   }
 
-  //publish ST stats every 50ms
-  if (millis() - stats_loop > 50) {
+  if (millis() - stats_loop > STATS_LOOP) {
     publishST_stats();
     stats_loop = millis();
   }
@@ -300,7 +291,11 @@ void publishST_stats() {
   buf[3] = humidity>>8;
   buf[0] = IntPressure;
   buf[1] = IntPressure>>8;
+
   CAN.sendMsgBuf(CAN_STB_SENS ,0, 8, buf);
+  #ifdef DEBUG
+    Serial.println(rawExtPressure);
+  #endif
 }
 
 

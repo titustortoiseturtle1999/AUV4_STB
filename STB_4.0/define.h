@@ -2,7 +2,6 @@
 #define _DEFINES_H
 
 //CAN
-#define CAN_Chip_Select 54
 #define CAN_Chip_Select 8
 #define CAN_INT 2
 
@@ -58,8 +57,8 @@
 //TIMEOUTS
 #define SCREEN_LOOP 1000
 #define HB_TIMEOUT 3000
-#define HEARTBEAT_LOOP 500
+#define HEARTBEAT_LOOP 500      // publish heartbeat every 500ms (can id 4)
 #define STAT_TIMEOUT 2000 
-
+#define STATS_LOOP 0            // publish stats as fast as possible (can id 11)
 
 #endif // _DEFINES_H
